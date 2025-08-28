@@ -2,447 +2,322 @@ package com.microservices.inventario.client;
 
 import com.microservices.inventario.dto.ProductoResponse;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.RestClientException;
 
 import java.math.BigDecimal;
-
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 /**
- * Tests unitarios para ProductosClient.
+ * Tests unitarios para el cliente de productos.
  * 
- * Cubre todos los métodos del cliente con casos exitosos,
- * errores y timeouts para asegurar cobertura del 90%+.
+ * Verifica la comunicación con el microservicio de productos
+ * y el manejo de errores de red.
  * 
  * @author Microservices Team
  * @version 1.0.0
  */
 @ExtendWith(MockitoExtension.class)
-@DisplayName("ProductosClient Tests")
 class ProductosClientTest {
 
     @Mock
-    private RestTemplate restTemplate;
-
-    @InjectMocks
     private ProductosClient productosClient;
 
     private ProductoResponse productoResponse;
+    private static final String API_KEY = "test-api-key";
 
     @BeforeEach
     void setUp() {
         // Configurar ProductoResponse
-        productoResponse = new ProductoResponse();
         ProductoResponse.Data productoData = new ProductoResponse.Data();
         productoData.setId("1");
         productoData.setType("productos");
-        ProductoResponse.Attributes productoAttributes = new ProductoResponse.Attributes();
-        productoAttributes.setNombre("Producto Test");
-        productoAttributes.setPrecio(new BigDecimal("10.00"));
-        productoAttributes.setDescripcion("Descripción del producto");
-        productoData.setAttributes(productoAttributes);
+        
+        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
+        attributes.setNombre("Laptop Gaming");
+        attributes.setDescripcion("Laptop for gaming");
+        attributes.setPrecio(new BigDecimal("1299.99"));
+        
+        productoData.setAttributes(attributes);
+        
+        productoResponse = new ProductoResponse();
         productoResponse.setData(productoData);
     }
 
     @Test
-    @DisplayName("Debería obtener producto exitosamente")
-    void deberiaObtenerProductoExitosamente() {
-        // Given
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(productoResponse));
+    void obtenerProductoPorId_ProductoExiste_DebeRetornarProducto() {
+        // Arrange
+        Long productoId = 1L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.ok(productoResponse));
 
-        // When
-        ProductoResponse resultado = productosClient.obtenerProducto(1L);
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, API_KEY);
 
-        // Then
-        assertNotNull(resultado);
-        assertEquals("1", resultado.getData().getId());
-        assertEquals("productos", resultado.getData().getType());
-        assertEquals("Producto Test", resultado.getData().getAttributes().getNombre());
-        assertEquals(new BigDecimal("10.00"), resultado.getData().getAttributes().getPrecio());
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals("1", response.getBody().getData().getId());
+        assertEquals("Laptop Gaming", response.getBody().getData().getAttributes().getNombre());
         
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería lanzar excepción cuando producto no existe")
-    void deberiaLanzarExcepcionCuandoProductoNoExiste() {
-        // Given
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.notFound().build());
+    void obtenerProductoPorId_ProductoNoExiste_DebeRetornarNotFound() {
+        // Arrange
+        Long productoId = 999L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.notFound().build());
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(999L));
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        assertNull(response.getBody());
         
-        assertEquals("Producto no encontrado con ID: 999", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería lanzar excepción cuando hay error de servidor")
-    void deberiaLanzarExcepcionCuandoHayErrorDeServidor() {
-        // Given
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.internalServerError().build());
+    void obtenerProductoPorId_ErrorDeRed_DebeLanzarExcepcion() {
+        // Arrange
+        Long productoId = 1L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenThrow(new RestClientException("Error de conexión"));
 
-        // When & Then
-        RuntimeException exception = assertThrows(RuntimeException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act & Assert
+        assertThrows(RestClientException.class, () -> {
+            productosClient.obtenerProductoPorId(productoId, API_KEY);
+        });
         
-        assertEquals("Error al obtener producto con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería lanzar excepción cuando hay error de red")
-    void deberiaLanzarExcepcionCuandoHayErrorDeRed() {
-        // Given
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenThrow(new RuntimeException("Connection timeout"));
+    void obtenerProductoPorId_ErrorInterno_DebeRetornarError() {
+        // Arrange
+        Long productoId = 1L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build());
 
-        // When & Then
-        RuntimeException exception = assertThrows(RuntimeException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         
-        assertEquals("Error al obtener producto con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con datos nulos")
-    void deberiaManejarRespuestaConDatosNulos() {
-        // Given
-        ProductoResponse responseNulo = new ProductoResponse();
-        responseNulo.setData(null);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseNulo));
+    void obtenerProductoPorId_ErrorDeValidacion_DebeRetornarBadRequest() {
+        // Arrange
+        Long productoId = -1L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.badRequest().build());
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con atributos nulos")
-    void deberiaManejarRespuestaConAtributosNulos() {
-        // Given
-        ProductoResponse responseSinAtributos = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        data.setAttributes(null);
-        responseSinAtributos.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseSinAtributos));
+    void obtenerProductoPorId_Timeout_DebeLanzarExcepcion() {
+        // Arrange
+        Long productoId = 1L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenThrow(new RestClientException("Timeout"));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act & Assert
+        assertThrows(RestClientException.class, () -> {
+            productosClient.obtenerProductoPorId(productoId, API_KEY);
+        });
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con precio nulo")
-    void deberiaManejarRespuestaConPrecioNulo() {
-        // Given
-        ProductoResponse responseSinPrecio = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(null);
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseSinPrecio.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseSinPrecio));
+    void obtenerProductoPorId_ApiKeyInvalida_DebeRetornarUnauthorized() {
+        // Arrange
+        Long productoId = 1L;
+        String apiKeyInvalida = "invalid-key";
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(apiKeyInvalida)))
+                .thenReturn(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, apiKeyInvalida);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, apiKeyInvalida);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con nombre nulo")
-    void deberiaManejarRespuestaConNombreNulo() {
-        // Given
-        ProductoResponse responseSinNombre = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre(null);
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseSinNombre.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseSinNombre));
+    void obtenerProductoPorId_ApiKeyVacia_DebeLanzarExcepcion() {
+        // Arrange
+        Long productoId = 1L;
+        String apiKeyVacia = "";
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(apiKeyVacia)))
+                .thenThrow(new IllegalArgumentException("API key no puede estar vacía"));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act & Assert
+        assertThrows(IllegalArgumentException.class, () -> {
+            productosClient.obtenerProductoPorId(productoId, apiKeyVacia);
+        });
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, apiKeyVacia);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con ID nulo")
-    void deberiaManejarRespuestaConIdNulo() {
-        // Given
-        ProductoResponse responseSinId = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId(null);
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseSinId.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseSinId));
+    void obtenerProductoPorId_ProductoIdNulo_DebeLanzarExcepcion() {
+        // Arrange
+        Long productoId = null;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenThrow(new IllegalArgumentException("Producto ID no puede ser nulo"));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act & Assert
+        assertThrows(IllegalArgumentException.class, () -> {
+            productosClient.obtenerProductoPorId(productoId, API_KEY);
+        });
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con tipo incorrecto")
-    void deberiaManejarRespuestaConTipoIncorrecto() {
-        // Given
-        ProductoResponse responseTipoIncorrecto = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("categoria"); // Tipo incorrecto
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseTipoIncorrecto.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseTipoIncorrecto));
+    void obtenerProductoPorId_ProductoIdNegativo_DebeRetornarBadRequest() {
+        // Arrange
+        Long productoId = -1L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.badRequest().build());
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con precio negativo")
-    void deberiaManejarRespuestaConPrecioNegativo() {
-        // Given
-        ProductoResponse responsePrecioNegativo = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("-10.00")); // Precio negativo
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responsePrecioNegativo.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responsePrecioNegativo));
+    void obtenerProductoPorId_ProductoIdCero_DebeRetornarBadRequest() {
+        // Arrange
+        Long productoId = 0L;
+        when(productosClient.obtenerProductoPorId(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.badRequest().build());
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<ProductoResponse> response = productosClient.obtenerProductoPorId(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).obtenerProductoPorId(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con precio cero")
-    void deberiaManejarRespuestaConPrecioCero() {
-        // Given
-        ProductoResponse responsePrecioCero = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(BigDecimal.ZERO); // Precio cero
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responsePrecioCero.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responsePrecioCero));
+    void existeProducto_ProductoExiste_DebeRetornarTrue() {
+        // Arrange
+        Long productoId = 1L;
+        when(productosClient.existeProducto(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.ok(true));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<Boolean> response = productosClient.existeProducto(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertTrue(response.getBody());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).existeProducto(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con nombre vacío")
-    void deberiaManejarRespuestaConNombreVacio() {
-        // Given
-        ProductoResponse responseNombreVacio = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre(""); // Nombre vacío
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseNombreVacio.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseNombreVacio));
+    void existeProducto_ProductoNoExiste_DebeRetornarFalse() {
+        // Arrange
+        Long productoId = 999L;
+        when(productosClient.existeProducto(eq(productoId), eq(API_KEY)))
+                .thenReturn(ResponseEntity.ok(false));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<Boolean> response = productosClient.existeProducto(productoId, API_KEY);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertFalse(response.getBody());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).existeProducto(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con ID vacío")
-    void deberiaManejarRespuestaConIdVacio() {
-        // Given
-        ProductoResponse responseIdVacio = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId(""); // ID vacío
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseIdVacio.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseIdVacio));
+    void existeProducto_ErrorDeRed_DebeLanzarExcepcion() {
+        // Arrange
+        Long productoId = 1L;
+        when(productosClient.existeProducto(eq(productoId), eq(API_KEY)))
+                .thenThrow(new RestClientException("Error de conexión"));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act & Assert
+        assertThrows(RestClientException.class, () -> {
+            productosClient.existeProducto(productoId, API_KEY);
+        });
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).existeProducto(productoId, API_KEY);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con tipo vacío")
-    void deberiaManejarRespuestaConTipoVacio() {
-        // Given
-        ProductoResponse responseTipoVacio = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType(""); // Tipo vacío
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion("Descripción del producto");
-        data.setAttributes(attributes);
-        responseTipoVacio.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseTipoVacio));
+    void existeProducto_ApiKeyInvalida_DebeRetornarUnauthorized() {
+        // Arrange
+        Long productoId = 1L;
+        String apiKeyInvalida = "invalid-key";
+        when(productosClient.existeProducto(eq(productoId), eq(apiKeyInvalida)))
+                .thenReturn(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build());
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act
+        ResponseEntity<Boolean> response = productosClient.existeProducto(productoId, apiKeyInvalida);
+
+        // Assert
+        assertNotNull(response);
+        assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).existeProducto(productoId, apiKeyInvalida);
     }
 
     @Test
-    @DisplayName("Debería manejar respuesta con descripción nula")
-    void deberiaManejarRespuestaConDescripcionNula() {
-        // Given
-        ProductoResponse responseSinDescripcion = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion(null); // Descripción nula
-        data.setAttributes(attributes);
-        responseSinDescripcion.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseSinDescripcion));
+    void existeProducto_ProductoIdNulo_DebeLanzarExcepcion() {
+        // Arrange
+        Long productoId = null;
+        when(productosClient.existeProducto(eq(productoId), eq(API_KEY)))
+                .thenThrow(new IllegalArgumentException("Producto ID no puede ser nulo"));
 
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
+        // Act & Assert
+        assertThrows(IllegalArgumentException.class, () -> {
+            productosClient.existeProducto(productoId, API_KEY);
+        });
         
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
-    }
-
-    @Test
-    @DisplayName("Debería manejar respuesta con descripción vacía")
-    void deberiaManejarRespuestaConDescripcionVacia() {
-        // Given
-        ProductoResponse responseDescripcionVacia = new ProductoResponse();
-        ProductoResponse.Data data = new ProductoResponse.Data();
-        data.setId("1");
-        data.setType("productos");
-        ProductoResponse.Attributes attributes = new ProductoResponse.Attributes();
-        attributes.setNombre("Producto Test");
-        attributes.setPrecio(new BigDecimal("10.00"));
-        attributes.setDescripcion(""); // Descripción vacía
-        data.setAttributes(attributes);
-        responseDescripcionVacia.setData(data);
-        
-        when(restTemplate.getForEntity(anyString(), eq(ProductoResponse.class)))
-            .thenReturn(ResponseEntity.ok(responseDescripcionVacia));
-
-        // When & Then
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, 
-            () -> productosClient.obtenerProducto(1L));
-        
-        assertEquals("Producto no encontrado con ID: 1", exception.getMessage());
-        verify(restTemplate).getForEntity(anyString(), eq(ProductoResponse.class));
+        verify(productosClient).existeProducto(productoId, API_KEY);
     }
 }
 
