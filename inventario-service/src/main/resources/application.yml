@@ -1,0 +1,120 @@
+spring:
+  application:
+    name: inventario-service
+  
+  profiles:
+    active: local
+  
+  datasource:
+    url: jdbc:postgresql://localhost:5433/inventario_db
+    username: inventario_user
+    password: inventario_pass
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+
+server:
+  port: 8082
+  servlet:
+    context-path: /
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  health:
+    db:
+      enabled: true
+
+logging:
+  level:
+    com.microservices.inventario: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+
+# API Configuration
+api:
+  version: v1
+  base-path: /api/v1
+  inventario:
+    api-key: inventario-api-key-2024
+
+# Productos Service Configuration
+productos:
+  service:
+    url: http://localhost:8081
+    api-key: productos-api-key-2024
+    timeout: 5000
+    retries: 3
+
+# Documentation
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+  packages-to-scan: com.microservices.inventario.controller
+
+---
+spring:
+  config:
+    activate:
+      on-profile: docker
+  
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://inventario-db:5432/inventario_db}
+    username: ${SPRING_DATASOURCE_USERNAME:inventario_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:inventario_pass}
+
+api:
+  inventario:
+    api-key: ${INVENTARIO_SERVICE_API_KEY:inventario-api-key-2024}
+
+productos:
+  service:
+    url: ${PRODUCTOS_SERVICE_URL:http://productos-service:8081}
+    api-key: ${PRODUCTOS_SERVICE_API_KEY:productos-api-key-2024}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: test
+  
+  datasource:
+    url: jdbc:tc:postgresql:15-alpine://test
+    username: test
+    password: test
+    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+
+productos:
+  service:
+    url: http://localhost:8081
+    api-key: test-api-key

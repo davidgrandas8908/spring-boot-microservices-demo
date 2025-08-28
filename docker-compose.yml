@@ -1,0 +1,108 @@
+version: '3.8'
+
+services:
+  # Base de datos para Productos
+  productos-db:
+    image: postgres:15-alpine
+    container_name: productos-db
+    environment:
+      POSTGRES_DB: productos_db
+      POSTGRES_USER: productos_user
+      POSTGRES_PASSWORD: productos_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - productos_data:/var/lib/postgresql/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U productos_user -d productos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Base de datos para Inventario
+  inventario-db:
+    image: postgres:15-alpine
+    container_name: inventario-db
+    environment:
+      POSTGRES_DB: inventario_db
+      POSTGRES_USER: inventario_user
+      POSTGRES_PASSWORD: inventario_pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - inventario_data:/var/lib/postgresql/data
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventario_user -d inventario_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Microservicio de Productos
+  productos-service:
+    build:
+      context: ./productos-service
+      dockerfile: Dockerfile
+    container_name: productos-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://productos-db:5432/productos_db
+      SPRING_DATASOURCE_USERNAME: productos_user
+      SPRING_DATASOURCE_PASSWORD: productos_pass
+      PRODUCTOS_SERVICE_API_KEY: productos-api-key-2024
+    depends_on:
+      productos-db:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Microservicio de Inventario
+  inventario-service:
+    build:
+      context: ./inventario-service
+      dockerfile: Dockerfile
+    container_name: inventario-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://inventario-db:5432/inventario_db
+      SPRING_DATASOURCE_USERNAME: inventario_user
+      SPRING_DATASOURCE_PASSWORD: inventario_pass
+      PRODUCTOS_SERVICE_URL: http://productos-service:8081
+      PRODUCTOS_SERVICE_API_KEY: productos-api-key-2024
+      INVENTARIO_SERVICE_API_KEY: inventario-api-key-2024
+    depends_on:
+      inventario-db:
+        condition: service_healthy
+      productos-service:
+        condition: service_healthy
+    networks:
+      - microservices-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  productos_data:
+    driver: local
+  inventario_data:
+    driver: local
+
+networks:
+  microservices-network:
+    driver: bridge

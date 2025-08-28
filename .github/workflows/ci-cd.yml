@@ -1,0 +1,231 @@
+name: CI/CD Pipeline - Microservicios
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_PRODUCTOS: ${{ github.repository }}/productos-service
+  IMAGE_NAME_INVENTARIO: ${{ github.repository }}/inventario-service
+
+jobs:
+  # Job de Testing y Análisis de Código
+  test-and-analyze:
+    name: Test and Code Analysis
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Cache Maven packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    # Test Productos Service
+    - name: Test Productos Service
+      working-directory: ./productos-service
+      run: |
+        mvn clean test jacoco:report
+        mvn sonar:sonar \
+          -Dsonar.projectKey=productos-service \
+          -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+    # Test Inventario Service
+    - name: Test Inventario Service
+      working-directory: ./inventario-service
+      run: |
+        mvn clean test jacoco:report
+        mvn sonar:sonar \
+          -Dsonar.projectKey=inventario-service \
+          -Dsonar.host.url=${{ secrets.SONAR_HOST_URL }} \
+          -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./productos-service/target/site/jacoco/jacoco.xml,./inventario-service/target/site/jacoco/jacoco.xml
+        flags: productos-service,inventario-service
+        name: codecov-umbrella
+
+  # Job de Security Scanning
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: test-and-analyze
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run OWASP Dependency Check
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'Microservicios'
+        path: '.'
+        format: 'HTML'
+        out: 'reports'
+
+    - name: Upload OWASP report
+      uses: actions/upload-artifact@v3
+      with:
+        name: owasp-report
+        path: reports/
+
+  # Job de Build y Push de Imágenes
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-and-analyze, security-scan]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    # Build Productos Service
+    - name: Build and push Productos Service
+      uses: docker/build-push-action@v5
+      with:
+        context: ./productos-service
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PRODUCTOS }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PRODUCTOS }}:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+    # Build Inventario Service
+    - name: Build and push Inventario Service
+      uses: docker/build-push-action@v5
+      with:
+        context: ./inventario-service
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_INVENTARIO }}:latest
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_INVENTARIO }}:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+  # Job de Deployment a Staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to staging environment
+      run: |
+        echo "Deploying to staging environment..."
+        # Aquí irían los comandos específicos para tu entorno de staging
+        # Por ejemplo, usando kubectl, docker-compose, o herramientas de deployment
+
+    - name: Run smoke tests
+      run: |
+        echo "Running smoke tests..."
+        # Tests básicos para verificar que el deployment fue exitoso
+
+  # Job de Deployment a Production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to production environment
+      run: |
+        echo "Deploying to production environment..."
+        # Aquí irían los comandos específicos para tu entorno de producción
+
+    - name: Run production health checks
+      run: |
+        echo "Running production health checks..."
+        # Verificaciones de salud post-deployment
+
+  # Job de Notificaciones
+  notify:
+    name: Notify Team
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+
+    steps:
+    - name: Notify on success
+      if: success()
+      run: |
+        echo "✅ Deployment successful!"
+        # Aquí podrías integrar con Slack, Teams, etc.
+
+    - name: Notify on failure
+      if: failure()
+      run: |
+        echo "❌ Deployment failed!"
+        # Notificación de fallo

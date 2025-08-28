@@ -1,0 +1,166 @@
+version: '3.8'
+
+services:
+  # Base de datos para Productos (Staging)
+  productos-db-staging:
+    image: postgres:15-alpine
+    container_name: productos-db-staging
+    environment:
+      POSTGRES_DB: productos_db_staging
+      POSTGRES_USER: productos_user_staging
+      POSTGRES_PASSWORD: productos_pass_staging_2024
+    ports:
+      - "5432:5432"
+    volumes:
+      - productos_data_staging:/var/lib/postgresql/data
+    networks:
+      - microservices-network-staging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U productos_user_staging -d productos_db_staging"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Base de datos para Inventario (Staging)
+  inventario-db-staging:
+    image: postgres:15-alpine
+    container_name: inventario-db-staging
+    environment:
+      POSTGRES_DB: inventario_db_staging
+      POSTGRES_USER: inventario_user_staging
+      POSTGRES_PASSWORD: inventario_pass_staging_2024
+    ports:
+      - "5433:5432"
+    volumes:
+      - inventario_data_staging:/var/lib/postgresql/data
+    networks:
+      - microservices-network-staging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inventario_user_staging -d inventario_db_staging"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Microservicio de Productos (Staging)
+  productos-service-staging:
+    image: ghcr.io/your-username/microservices/productos-service:latest
+    container_name: productos-service-staging
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://productos-db-staging:5432/productos_db_staging
+      SPRING_DATASOURCE_USERNAME: productos_user_staging
+      SPRING_DATASOURCE_PASSWORD: productos_pass_staging_2024
+      PRODUCTOS_SERVICE_API_KEY: productos-api-key-staging-2024
+      # Configuraciones específicas de staging
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_MICROSERVICES: DEBUG
+    depends_on:
+      productos-db-staging:
+        condition: service_healthy
+    networks:
+      - microservices-network-staging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Microservicio de Inventario (Staging)
+  inventario-service-staging:
+    image: ghcr.io/your-username/microservices/inventario-service:latest
+    container_name: inventario-service-staging
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_DATASOURCE_URL: jdbc:postgresql://inventario-db-staging:5432/inventario_db_staging
+      SPRING_DATASOURCE_USERNAME: inventario_user_staging
+      SPRING_DATASOURCE_PASSWORD: inventario_pass_staging_2024
+      PRODUCTOS_SERVICE_URL: http://productos-service-staging:8081
+      PRODUCTOS_SERVICE_API_KEY: productos-api-key-staging-2024
+      INVENTARIO_SERVICE_API_KEY: inventario-api-key-staging-2024
+      # Configuraciones específicas de staging
+      LOGGING_LEVEL_ROOT: INFO
+      LOGGING_LEVEL_COM_MICROSERVICES: DEBUG
+    depends_on:
+      inventario-db-staging:
+        condition: service_healthy
+      productos-service-staging:
+        condition: service_healthy
+    networks:
+      - microservices-network-staging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+  # Nginx Reverse Proxy (Staging)
+  nginx-staging:
+    image: nginx:alpine
+    container_name: nginx-staging
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - productos-service-staging
+      - inventario-service-staging
+    networks:
+      - microservices-network-staging
+    restart: unless-stopped
+
+  # Redis Cache (Staging)
+  redis-staging:
+    image: redis:7-alpine
+    container_name: redis-staging
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data_staging:/data
+    networks:
+      - microservices-network-staging
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+
+volumes:
+  productos_data_staging:
+    driver: local
+  inventario_data_staging:
+    driver: local
+  redis_data_staging:
+    driver: local
+
+networks:
+  microservices-network-staging:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
